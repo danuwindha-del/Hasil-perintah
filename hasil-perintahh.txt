@@ -1,0 +1,275 @@
+root@ubuntu-8c4-sgp1-13:~#
+echo "===== KONFIGURASI API ====="
+sudo nl -ba /etc/nginx/sites-available/kocehind | sed -n '1,180p'
+
+echo
+echo "===== KONFIGURASI LIVE DAN TURN ====="
+sudo grep -RniE \
+'server_name.*(live|turn)\.kocehind' \
+/etc/nginx/sites-enabled/
+
+echo
+echo "===== SYMLINK NGINX AKTIF ====="
+ls -lah /etc/nginx/sites-enabled/
+
+echo
+echo "===== PORT HTTP DAN HTTPS ====="
+sudo ss -ltnp | grep -E ':80 |:443 '
+
+echo
+echo "===== SERTIFIKAT API ====="
+sudo certbot certificates
+===== KONFIGURASI API =====
+     1  # Installed into /etc/nginx/sites-available/kocehind
+     2  limit_req_zone $binary_remote_addr zone=kocehind_auth:10m rate=30r/m;
+     3
+     4  server {
+     5      server_name api.kocehind.com api.kocehind.web.id;    client_max_body_size 85m;
+     6
+     7      # Upload API must be proxied; static /media/ alias must not intercept it.
+     8      location = /media/upload {
+     9          proxy_pass http://127.0.0.1:8000;
+    10          proxy_http_version 1.1;
+    11          proxy_set_header Host $host;
+    12          proxy_set_header Authorization $http_authorization;
+    13          proxy_set_header X-Real-IP $remote_addr;
+    14          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    15          proxy_set_header X-Forwarded-Proto $scheme;
+    16          proxy_read_timeout 300s;
+    17          proxy_send_timeout 180s;
+    18      }
+    19
+    20
+    21  # Streaming tokens must never enter Nginx access logs or a shared cache.
+    22  location ^~ /streams/ {
+    23      proxy_pass http://127.0.0.1:8000;
+    24      proxy_set_header Host $host;
+    25      proxy_set_header Authorization $http_authorization;
+    26      proxy_set_header X-Forwarded-Proto $scheme;
+    27      proxy_buffering off;
+    28      proxy_no_cache 1;
+    29      proxy_cache_bypass 1;
+    30      access_log off;
+    31  }
+    32
+    33      location ^~ /media/ {
+    34          # Privacy changes and revoked friendships apply to old media URLs too.
+    35          proxy_pass http://127.0.0.1:8000;
+    36          proxy_http_version 1.1;
+    37          proxy_set_header Host $host;
+    38          proxy_set_header Authorization $http_authorization;
+    39          proxy_set_header X-Real-IP $remote_addr;
+    40          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    41          proxy_set_header X-Forwarded-Proto $scheme;
+    42          proxy_buffering off;
+    43          access_log off; # Do not log scoped media tokens.
+    44          proxy_no_cache 1;
+    45          proxy_cache_bypass 1;
+    46          proxy_hide_header Cache-Control;
+    47          add_header Cache-Control "private, no-store" always;
+    48          add_header X-Content-Type-Options nosniff always;
+    49          proxy_read_timeout 300s;
+    50      }
+    51      location /auth/ {
+    52          limit_req zone=kocehind_auth burst=12 nodelay;
+    53          proxy_pass http://127.0.0.1:8000;
+    54          proxy_set_header Host $host;
+    55          proxy_set_header X-Real-IP $remote_addr;
+    56          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    57          proxy_set_header X-Forwarded-Proto $scheme;
+    58      }
+    59      location /ws {
+    60          proxy_pass http://127.0.0.1:8000/ws;
+    61          proxy_http_version 1.1;
+    62          proxy_set_header Upgrade $http_upgrade;
+    63          proxy_set_header Connection "upgrade";
+    64          proxy_set_header Authorization $http_authorization;
+    65          proxy_set_header Host $host;
+    66          proxy_set_header X-Real-IP $remote_addr;
+    67          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    68          proxy_set_header X-Forwarded-Proto $scheme;
+    69          proxy_read_timeout 3600s;
+    70          proxy_send_timeout 3600s;
+    71      }
+    72      location / {
+    73          proxy_pass http://127.0.0.1:8000;
+    74          proxy_http_version 1.1;
+    75          proxy_set_header Host $host;
+    76          proxy_set_header Authorization $http_authorization;
+    77          proxy_set_header X-Real-IP $remote_addr;
+    78          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    79          proxy_set_header X-Forwarded-Proto $scheme;
+    80          proxy_read_timeout 300s;
+    81      }
+    82
+    83      location ^~ /official/ {
+    84          # Official inbox streams recheck recipients and withdrawal for every request.
+    85          proxy_pass http://127.0.0.1:8000;
+    86          proxy_http_version 1.1;
+    87          proxy_set_header Host $host;
+    88          proxy_set_header Authorization $http_authorization;
+    89          proxy_set_header X-Real-IP $remote_addr;
+    90          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    91          proxy_set_header X-Forwarded-Proto $scheme;
+    92          proxy_buffering off;
+    93          access_log off; # Do not log scoped media tokens.
+    94          proxy_no_cache 1;
+    95          proxy_cache_bypass 1;
+    96          proxy_hide_header Cache-Control;
+    97          add_header Cache-Control "private, no-store" always;
+    98          add_header X-Content-Type-Options nosniff always;
+    99          proxy_read_timeout 300s;
+   100      }
+   101
+   102      location ^~ /studio/ {
+   103          # Owner-only Studio streams must not retain playback tokens in access logs.
+   104          proxy_pass http://127.0.0.1:8000;
+   105          proxy_http_version 1.1;
+   106          proxy_set_header Host $host;
+   107          proxy_set_header Authorization $http_authorization;
+   108          proxy_set_header X-Real-IP $remote_addr;
+   109          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   110          proxy_set_header X-Forwarded-Proto $scheme;
+   111          proxy_buffering off;
+   112          access_log off; # Do not log scoped media tokens.
+   113          proxy_no_cache 1;
+   114          proxy_cache_bypass 1;
+   115          proxy_hide_header Cache-Control;
+   116          add_header Cache-Control "private, no-store" always;
+   117          add_header X-Content-Type-Options nosniff always;
+   118          proxy_read_timeout 300s;
+   119      }
+   120
+   121      listen 443 ssl; # managed by Certbot
+   122      ssl_certificate /etc/letsencrypt/live/kocehind.web.id/fullchain.pem; # managed by Certbot
+   123      ssl_certificate_key /etc/letsencrypt/live/kocehind.web.id/privkey.pem; # managed by Certbot
+   124      include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+   125      ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+   126
+   127  }
+   128  server {
+   129      server_name kocehind.com kocehind.web.id;
+   130
+   131      # Public web share links (https://kocehind.com/post/UUID and /@username).
+   132
+   133
+   134
+   135      add_header X-Content-Type-Options nosniff always;
+   136
+   137      include /etc/nginx/snippets/kocehind-main.locations.conf;
+   138
+   139      listen 443 ssl; # managed by Certbot
+   140      ssl_certificate /etc/letsencrypt/live/kocehind.web.id/fullchain.pem; # managed by Certbot
+   141      ssl_certificate_key /etc/letsencrypt/live/kocehind.web.id/privkey.pem; # managed by Certbot
+   142      include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+   143      ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+   144
+   145  }
+   146
+   147  server {
+   148      if ($host = kocehind.com) {
+   149          return 301 https://$host$request_uri;
+   150      } # managed by Certbot
+   151
+   152
+   153      listen 80;
+   154      server_name kocehind.com kocehind.web.id;    return 404; # managed by Certbot
+   155
+   156
+   157
+   158      include /etc/nginx/snippets/kocehind-main.locations.conf;
+   159  }
+   160
+   161  server {
+   162      if ($host = api.kocehind.com) {
+   163          return 301 https://$host$request_uri;
+   164      } # managed by Certbot
+   165
+   166
+   167      listen 80;
+   168      server_name api.kocehind.com api.kocehind.web.id;    return 404; # managed by Certbot
+   169
+   170
+   171
+   172      location ^~ /media/ {
+   173          # Privacy changes and revoked friendships apply to old media URLs too.
+   174          proxy_pass http://127.0.0.1:8000;
+   175          proxy_http_version 1.1;
+   176          proxy_set_header Host $host;
+   177          proxy_set_header Authorization $http_authorization;
+   178          proxy_set_header X-Real-IP $remote_addr;
+   179          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   180          proxy_set_header X-Forwarded-Proto $scheme;
+
+===== KONFIGURASI LIVE DAN TURN =====
+/etc/nginx/sites-enabled/kocehind-live-com:2:    server_name live.kocehind.com;
+/etc/nginx/sites-enabled/kocehind-live-com:28:    server_name turn.kocehind.com;
+/etc/nginx/sites-enabled/kocehind-live-com:52:    server_name live.kocehind.com;
+/etc/nginx/sites-enabled/kocehind-live-com:65:    server_name turn.kocehind.com;
+/etc/nginx/sites-enabled/kocehind-live:2:  server_name live.kocehind.com live.kocehind.web.id;  location / {
+/etc/nginx/sites-enabled/kocehind-live:20:server { server_name turn.kocehind.com; location / { return 404; }
+/etc/nginx/sites-enabled/kocehind-live:35:  server_name live.kocehind.com live.kocehind.web.id;    return 404; # managed by Certbot
+/etc/nginx/sites-enabled/kocehind-live:44: listen 80; server_name turn.kocehind.com;
+
+===== SYMLINK NGINX AKTIF =====
+total 8.0K
+drwxr-xr-x 2 root root 4.0K Nov 10 13:13 .
+drwxr-xr-x 8 root root 4.0K Nov 10 12:49 ..
+lrwxrwxrwx 1 root root   35 Nov  5 14:52 kocehind -> /etc/nginx/sites-available/kocehind
+lrwxrwxrwx 1 root root   40 Nov  5 14:58 kocehind-live -> /etc/nginx/sites-available/kocehind-live
+lrwxrwxrwx 1 root root   44 Nov 10 12:47 kocehind-live-com -> /etc/nginx/sites-available/kocehind-live-com
+lrwxrwxrwx 1 root root   44 Nov 10 13:13 kocehind-webhosts -> /etc/nginx/sites-available/kocehind-webhosts
+
+===== PORT HTTP DAN HTTPS =====
+LISTEN 0      511          0.0.0.0:80         0.0.0.0:*    users:(("nginx",pid=108498,fd=7),("nginx",pid=108497,fd=7),("nginx",pid=108496,fd=7),("nginx",pid=108495,fd=7),("nginx",pid=93341,fd=7))
+LISTEN 0      511          0.0.0.0:443        0.0.0.0:*    users:(("nginx",pid=108498,fd=6),("nginx",pid=108497,fd=6),("nginx",pid=108496,fd=6),("nginx",pid=108495,fd=6),("nginx",pid=93341,fd=6))
+
+===== SERTIFIKAT API =====
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Found the following certs:
+  Certificate Name: kocehind.web.id
+    Serial Number: 6c6bd33283b1d109cfa2542ec68bf79e4af
+    Key Type: RSA
+    Domains: kocehind.web.id api.kocehind.web.id
+    Expiry Date: 2027-02-03 13:55:23+00:00 (VALID: 85 days)
+    Certificate Path: /etc/letsencrypt/live/kocehind.web.id/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/kocehind.web.id/privkey.pem
+  Certificate Name: live.kocehind.com
+    Serial Number: 58be796948dad8abeca2fa7a5439cf0f251
+    Key Type: RSA
+    Domains: live.kocehind.com
+    Expiry Date: 2027-02-08 11:34:44+00:00 (VALID: 89 days)
+    Certificate Path: /etc/letsencrypt/live/live.kocehind.com/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/live.kocehind.com/privkey.pem
+  Certificate Name: live.kocehind.web.id
+    Serial Number: 6f8df93eb25bd24b10736b9be3280966274
+    Key Type: RSA
+    Domains: live.kocehind.web.id
+    Expiry Date: 2027-02-03 14:00:36+00:00 (VALID: 85 days)
+    Certificate Path: /etc/letsencrypt/live/live.kocehind.web.id/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/live.kocehind.web.id/privkey.pem
+  Certificate Name: turn.kocehind.com
+    Serial Number: 5b0f3ab11dabc3adfa7a534af7d04d22e4e
+    Key Type: RSA
+    Domains: turn.kocehind.com
+    Expiry Date: 2027-02-08 11:50:44+00:00 (VALID: 89 days)
+    Certificate Path: /etc/letsencrypt/live/turn.kocehind.com/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/turn.kocehind.com/privkey.pem
+  Certificate Name: turn.kocehind.web.id
+    Serial Number: 6aaefc94bd746c08eaec76457e3a90bb05b
+    Key Type: RSA
+    Domains: turn.kocehind.web.id
+    Expiry Date: 2027-02-03 14:00:51+00:00 (VALID: 85 days)
+    Certificate Path: /etc/letsencrypt/live/turn.kocehind.web.id/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/turn.kocehind.web.id/privkey.pem
+  Certificate Name: web.kocehind.web.id
+    Serial Number: 6375b74262ca031bb3b967a707906df6e1b
+    Key Type: RSA
+    Domains: web.kocehind.web.id admin.kocehind.web.id vt.kocehind.web.id
+    Expiry Date: 2027-02-03 13:55:44+00:00 (VALID: 85 days)
+    Certificate Path: /etc/letsencrypt/live/web.kocehind.web.id/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/web.kocehind.web.id/privkey.pem
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+root@ubuntu-8c4-sgp1-13:~#
